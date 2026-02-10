@@ -1,0 +1,257 @@
+<template>
+  <Modal
+    v-model:open="visible"
+    :title="$t('page.system.selectFromDatabase')"
+    width="900px"
+    @ok="handleConfirm"
+    @cancel="handleCancel"
+  >
+    <div class="image-database-modal">
+      <Row :gutter="16">
+        <!-- 左侧文件树 -->
+        <Col :span="8">
+          <Card :bordered="false" class="tree-container">
+            <Tree
+              v-model:selectedKeys="selectedKeys"
+              v-model:checkedKeys="checkedKeys"
+              :tree-data="treeData"
+              :checkable="allowMultiple"
+              :show-icon="true"
+              @select="handleTreeSelect"
+            >
+              <template #icon="{ dataRef }">
+                <FolderOutlined v-if="dataRef.isFolder" />
+                <FileImageOutlined v-else />
+              </template>
+            </Tree>
+          </Card>
+        </Col>
+
+        <!-- 右侧图片预览 -->
+        <Col :span="16">
+          <Card :bordered="false" class="preview-container">
+            <div v-if="selectedImage" class="preview-content">
+              <Image
+                :src="selectedImage.path"
+                :alt="selectedImage.filename"
+                class="preview-image"
+              />
+              <Descriptions :column="1" size="small" class="mt-4">
+                <DescriptionsItem label="文件名">
+                  {{ selectedImage.filename }}
+                </DescriptionsItem>
+                <DescriptionsItem label="大小">
+                  {{ formatFileSize(selectedImage.size) }}
+                </DescriptionsItem>
+                <DescriptionsItem label="上传时间">
+                  {{ formatDate(selectedImage.uploadedAt) }}
+                </DescriptionsItem>
+              </Descriptions>
+            </div>
+            <Empty v-else description="请选择图片" />
+          </Card>
+        </Col>
+      </Row>
+    </div>
+  </Modal>
+</template>
+
+<script setup lang="ts">
+import { computed, ref, watch } from 'vue';
+import {
+  Card,
+  Col,
+  Descriptions,
+  DescriptionsItem,
+  Empty,
+  Image,
+  Modal,
+  Row,
+  Tree,
+} from 'ant-design-vue';
+import {
+  FileImageOutlined,
+  FolderOutlined,
+} from '@ant-design/icons-vue';
+import type { TreeProps } from 'ant-design-vue';
+import { defectDetectionApi, type ImageDatabaseItem } from '#/api/system/defect-detection';
+import { message } from 'ant-design-vue';
+
+interface Props {
+  open: boolean;
+  allowMultiple?: boolean; // 是否允许多选
+}
+
+interface Emits {
+  (e: 'update:open', value: boolean): void;
+  (e: 'confirm', data: ImageDatabaseItem[]): void;
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  allowMultiple: false,
+});
+
+const emit = defineEmits<Emits>();
+
+const visible = computed({
+  get: () => props.open,
+  set: (val) => emit('update:open', val),
+});
+
+const treeData = ref<TreeProps['treeData']>([]);
+const selectedKeys = ref<string[]>([]);
+const checkedKeys = ref<string[]>([]);
+const selectedImage = ref<ImageDatabaseItem | null>(null);
+const imageMap = ref<Map<string, ImageDatabaseItem>>(new Map());
+
+// 加载图片数据库
+const loadDatabase = async () => {
+  try {
+    const data = await defectDetectionApi.getImageDatabase();
+    const { tree, map } = buildTree(data);
+    treeData.value = tree;
+    imageMap.value = map;
+  } catch (error) {
+    message.error('加载图片库失败');
+  }
+};
+
+// 构建树形结构
+const buildTree = (items: ImageDatabaseItem[]) => {
+  const map = new Map<string, ImageDatabaseItem>();
+  const tree: TreeProps['treeData'] = [];
+
+  // 按文件夹分组
+  const folderMap = new Map<string, ImageDatabaseItem[]>();
+
+  items.forEach((item) => {
+    map.set(String(item.id), item);
+
+    if (!item.folder || item.folder === '/') {
+      if (!item.isFolder) {
+        tree.push({
+          key: String(item.id),
+          title: item.filename,
+          isLeaf: true,
+          isFolder: false,
+          dataRef: item,
+        });
+      }
+    } else {
+      if (!folderMap.has(item.folder)) {
+        folderMap.set(item.folder, []);
+      }
+      folderMap.get(item.folder)!.push(item);
+    }
+  });
+
+  // 构建文件夹节点
+  folderMap.forEach((children, folderPath) => {
+    tree.push({
+      key: folderPath,
+      title: folderPath.split('/').pop() || folderPath,
+      isLeaf: false,
+      isFolder: true,
+      children: children.map((item) => ({
+        key: String(item.id),
+        title: item.filename,
+        isLeaf: true,
+        isFolder: false,
+        dataRef: item,
+      })),
+    });
+  });
+
+  return { tree, map };
+};
+
+// 选择树节点
+const handleTreeSelect = (keys: string[], info: any) => {
+  if (keys.length > 0) {
+    const node = info.node.dataRef;
+    if (node && !node.isFolder) {
+      selectedImage.value = node;
+    }
+  }
+};
+
+// 格式化文件大小
+const formatFileSize = (bytes: number) => {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+};
+
+// 格式化日期
+const formatDate = (dateStr: string) => {
+  return new Date(dateStr).toLocaleString('zh-CN');
+};
+
+// 确认选择
+const handleConfirm = () => {
+  const selectedItems: ImageDatabaseItem[] = [];
+
+  if (props.allowMultiple) {
+    // 多选模式
+    checkedKeys.value.forEach((key) => {
+      const item = imageMap.value.get(String(key));
+      if (item && !item.isFolder) {
+        selectedItems.push(item);
+      }
+    });
+  } else {
+    // 单选模式
+    if (selectedImage.value) {
+      selectedItems.push(selectedImage.value);
+    }
+  }
+
+  if (selectedItems.length === 0) {
+    message.warning('请选择图片');
+    return;
+  }
+
+  emit('confirm', selectedItems);
+  visible.value = false;
+};
+
+// 取消
+const handleCancel = () => {
+  visible.value = false;
+};
+
+// 监听打开状态，加载数据
+watch(
+  () => props.open,
+  (newVal) => {
+    if (newVal) {
+      loadDatabase();
+      selectedKeys.value = [];
+      checkedKeys.value = [];
+      selectedImage.value = null;
+    }
+  }
+);
+</script>
+
+<style scoped lang="scss">
+.image-database-modal {
+  .tree-container {
+    height: 500px;
+    overflow-y: auto;
+  }
+
+  .preview-container {
+    height: 500px;
+    overflow-y: auto;
+  }
+
+  .preview-content {
+    .preview-image {
+      width: 100%;
+      max-height: 350px;
+      object-fit: contain;
+    }
+  }
+}
+</style>

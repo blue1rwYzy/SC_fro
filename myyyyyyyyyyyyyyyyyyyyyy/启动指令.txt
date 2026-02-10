@@ -1,0 +1,13 @@
+# 部署
+pnpm install
+
+pnpm dev:antd
+
+
+# 构建静态文件后
+ pnpm build:antd
+
+cd G:\ShuangChuang\ShuangC\frontend\vue-vben-admin-main\apps\web-antd && npx serve dist -p 5666 --single --cors
+
+# 启动生产服务器
+ node apps\web-antd\server.js

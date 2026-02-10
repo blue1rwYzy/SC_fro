@@ -1,0 +1,44 @@
+{
+  "auth": {
+    "login": "Login",
+    "register": "Register",
+    "codeLogin": "Code Login",
+    "qrcodeLogin": "Qr Code Login",
+    "forgetPassword": "Forget Password",
+    "profile": "Profile"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "analytics": "Analytics",
+    "workspace": "Workspace"
+  },
+  "system": {
+    "title": "System Management",
+    "defectDetection": "Road Defect Detection",
+    "imageDatabase": "Image Database Management",
+    "vehicleTracking": "Vehicle Tracking",
+    "modelManagement": "Model Management",
+    "videoDatabase": "Video Database Management",
+    "modelSelect": "Select Model",
+    "uploadImage": "Upload Image",
+    "uploadVideo": "Upload Video",
+    "uploadSingle": "Upload Single Image",
+    "uploadFolder": "Upload Folder Archive",
+    "selectFromDatabase": "Select from Database",
+    "inferenceResult": "Inference Result",
+    "startInference": "Start Inference",
+    "downloading": "Downloading...",
+    "downloadResults": "Download Results",
+    "previousImage": "Previous",
+    "nextImage": "Next",
+    "imageCount": "{count} images in total",
+    "currentImage": "Image {current}/{total}",
+    "inferenceStatus": {
+      "idle": "Ready",
+      "uploading": "Uploading...",
+      "processing": "Processing...",
+      "completed": "Completed",
+      "failed": "Failed"
+    }
+  }
+}
