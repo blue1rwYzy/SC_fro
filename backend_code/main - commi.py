@@ -1,9 +1,10 @@
-﻿from fastapi import FastAPI, HTTPException, Header
+﻿from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
 import hashlib
+from datetime import datetime
 
 try:
     import jwt as pyjwt
@@ -69,6 +70,24 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 720
 
 
+# ========= 统一返回结构 =========
+def ok(data=None, message="ok"):
+    return {"code": 0, "message": message, "data": data}
+
+
+def fail(message="error", code=400, data=None):
+    return JSONResponse(
+        status_code=code,
+        content={"code": code, "message": message, "data": data},
+    )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    return fail(message=str(exc.detail), code=exc.status_code)
+
+
+# ========= 登录相关 =========
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -107,6 +126,42 @@ MOCK_CODES = {
     "user": ["AC_1000001", "AC_1000002"],
 }
 
+
+def _now_str():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+# ========= 角色内存数据 =========
+MOCK_ROLES = [
+    {
+        "id": 1,
+        "name": "超级管理员",
+        "code": "super",
+        "status": 1,
+        "description": "系统最高权限",
+        "createdAt": _now_str(),
+    },
+    {
+        "id": 2,
+        "name": "管理员",
+        "code": "admin",
+        "status": 1,
+        "description": "系统管理权限",
+        "createdAt": _now_str(),
+    },
+    {
+        "id": 3,
+        "name": "普通用户",
+        "code": "user",
+        "status": 1,
+        "description": "基础访问权限",
+        "createdAt": _now_str(),
+    },
+]
+ROLE_ID_SEQ = 4
+
+
+# ========= 菜单（你原来的不动） =========
 MOCK_MENUS = {
     "vben": [
         {
@@ -217,7 +272,7 @@ def get_current_user(authorization: Optional[str] = Header(None)):
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "service": "business-service-auth-only"}
+    return ok({"status": "healthy", "service": "business-service-auth-only"}, "ok")
 
 
 @app.post("/auth/login")
@@ -229,10 +284,7 @@ async def login(request: LoginRequest):
     )
 
     if not user:
-        return JSONResponse(
-            status_code=403,
-            content={"code": 403, "message": "Invalid username or password", "data": None},
-        )
+        return fail("Invalid username or password", 403)
 
     access_token = create_access_token(
         {
@@ -242,10 +294,8 @@ async def login(request: LoginRequest):
         }
     )
 
-    return {
-        "code": 0,
-        "message": "success",
-        "data": {
+    return ok(
+        {
             "id": user["id"],
             "username": user["username"],
             "realName": user["realName"],
@@ -253,7 +303,8 @@ async def login(request: LoginRequest):
             "homePath": user.get("homePath"),
             "accessToken": access_token,
         },
-    }
+        "success",
+    )
 
 
 @app.post("/auth/refresh")
@@ -275,45 +326,116 @@ async def refresh_token(authorization: Optional[str] = Header(None)):
         }
     )
 
-    return {"code": 0, "message": "success", "data": new_token}
+    return ok(new_token, "success")
 
 
 @app.post("/auth/logout")
 async def logout():
-    return {"code": 0, "message": "success", "data": None}
+    return ok(None, "success")
 
 
 @app.get("/user/info")
 async def get_user_info(authorization: Optional[str] = Header(None)):
     user = get_current_user(authorization)
-    return {
-        "code": 0,
-        "message": "success",
-        "data": {
+    return ok(
+        {
             "id": user["id"],
             "username": user["username"],
             "realName": user["realName"],
             "roles": user["roles"],
             "homePath": user.get("homePath"),
         },
-    }
+        "success",
+    )
 
 
 @app.get("/auth/codes")
 async def get_user_codes(authorization: Optional[str] = Header(None)):
     user = get_current_user(authorization)
     codes = MOCK_CODES.get(user["username"], [])
-    return {"code": 0, "message": "success", "data": codes}
+    return ok(codes, "success")
 
 
 @app.get("/menu/all")
 async def get_user_menus(authorization: Optional[str] = Header(None)):
     user = get_current_user(authorization)
     menus = MOCK_MENUS.get(user["username"], [])
-    return {"code": 0, "message": "success", "data": menus}
+    return ok(menus, "success")
+
+
+# =============================
+# 系统管理：角色管理 API
+# =============================
+class RoleCreateReq(BaseModel):
+    name: str
+    code: str
+    status: int = 1
+    description: str = ""
+
+
+class RoleUpdateReq(BaseModel):
+    name: str | None = None
+    code: str | None = None
+    status: int | None = None
+    description: str | None = None
+
+
+@app.get("/system/roles")
+def list_roles():
+    return ok(MOCK_ROLES, "ok")
+
+
+@app.post("/system/roles")
+def create_role(req: RoleCreateReq):
+    global ROLE_ID_SEQ
+
+    if any(r["code"] == req.code.strip() for r in MOCK_ROLES):
+        raise HTTPException(status_code=400, detail="角色编码 code 已存在")
+
+    role = {
+        "id": ROLE_ID_SEQ,
+        "name": req.name.strip(),
+        "code": req.code.strip(),
+        "status": req.status,
+        "description": (req.description or "").strip(),
+        "createdAt": _now_str(),
+    }
+    ROLE_ID_SEQ += 1
+    MOCK_ROLES.append(role)
+    return ok(role, "created")
+
+
+@app.put("/system/roles/{role_id}")
+def update_role(role_id: int, req: RoleUpdateReq):
+    role = next((r for r in MOCK_ROLES if r["id"] == role_id), None)
+    if not role:
+        raise HTTPException(status_code=404, detail="角色不存在")
+
+    if req.code and req.code.strip() != role["code"]:
+        if any(r["code"] == req.code.strip() for r in MOCK_ROLES):
+            raise HTTPException(status_code=400, detail="角色编码 code 已存在")
+        role["code"] = req.code.strip()
+
+    if req.name is not None:
+        role["name"] = req.name.strip()
+    if req.status is not None:
+        role["status"] = req.status
+    if req.description is not None:
+        role["description"] = (req.description or "").strip()
+
+    return ok(role, "updated")
+
+
+@app.delete("/system/roles/{role_id}")
+def delete_role(role_id: int):
+    global MOCK_ROLES
+    before = len(MOCK_ROLES)
+    MOCK_ROLES = [r for r in MOCK_ROLES if r["id"] != role_id]
+    if len(MOCK_ROLES) == before:
+        raise HTTPException(status_code=404, detail="角色不存在")
+    return ok(True, "deleted")
 
 
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(app, host="0.0.0.0", port=8001)
