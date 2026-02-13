@@ -1,44 +1,37 @@
 import type { RouteRecordRaw } from 'vue-router';
 
-import { BasicLayout } from '#/layouts';
-
-const routes: RouteRecordRaw[] = [
+const systemManagementRoutes: RouteRecordRaw[] = [
   {
-    name: 'SystemManagement',
     path: '/system-management',
-    component: BasicLayout,
+    name: 'SystemManagement',
     meta: {
-      icon: 'ant-design:setting-outlined',
-      order: 50,
       title: '系统管理',
+      icon: 'lucide:settings',
+      requiresAuth: true, // 需要权限验证
     },
     children: [
       {
-        name: 'SystemUserManagement',
-        path: '/system-management/user',
+        path: 'department-management',
+        name: 'DepartmentManagement',
+        component: () => import('#/views/system-management/department-management/index.vue'),
+        meta: {
+          title: '部门管理',
+          icon: 'lucide:building-2',
+          keepAlive: true,
+        },
+      },
+      {
+        path: 'user-management',
+        name: 'UserManagement',
         component: () => import('#/views/system-management/user-management/index.vue'),
         meta: {
           title: '用户管理',
-        },
-      },
-      {
-        name: 'SystemRoleManagement',
-        path: '/system-management/role',
-        component: () => import('#/views/system-management/role-management/index.vue'),
-        meta: {
-          title: '角色管理',
-        },
-      },
-      {
-        name: 'SystemDeptManagement',
-        path: '/system-management/dept',
-        component: () => import('#/views/system-management/dept-management/index.vue'),
-        meta: {
-          title: '部门管理',
+          icon: 'lucide:users',
+          keepAlive: true,
         },
       },
     ],
   },
 ];
 
-export default routes;
+export default systemManagementRoutes;
