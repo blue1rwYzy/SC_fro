@@ -1,0 +1,56 @@
+{
+  "auth": {
+    "login": "登录",
+    "register": "注册",
+    "codeLogin": "验证码登录",
+    "qrcodeLogin": "二维码登录",
+    "forgetPassword": "忘记密码",
+    "profile": "个人中心"
+  },
+  "dashboard": {
+    "title": "概览",
+    "analytics": "分析页",
+    "workspace": "工作台"
+  },
+  "system": {
+    "title": "系统功能",
+    "defectDetection": "高速路面缺陷检测",
+    "imageDatabase": "图像数据库管理",
+    "trafficIntelligence": "交通智能分析",
+    "vehicleTracking": "高速公路车辆追踪",
+    "vehicleReportRecords": "报告记录",
+    "knowledgeGraph": "知识图谱模块",
+    "modelManagement": "模型管理",
+    "videoDatabase": "视频数据库管理",
+    "roadQuality": "道路质量分析",
+    "dataManagement": "数据管理",
+    "roadAnalysis": "高速养护巡检",
+    "modelSelect": "选择模型",
+    "uploadImage": "上传图片",
+    "uploadVideo": "上传视频",
+    "uploadSingle": "上传单张图片",
+    "uploadFolder": "上传图片压缩包",
+    "selectFromDatabase": "从图片库选择",
+    "inferenceResult": "推理结果",
+    "startInference": "开始推理",
+    "downloading": "下载中...",
+    "downloadResults": "下载结果",
+    "previousImage": "上一张",
+    "nextImage": "下一张",
+    "imageCount": "共 {count} 张图片",
+    "currentImage": "第 {current}/{total} 张",
+    "inferenceStatus": {
+      "idle": "等待推理",
+      "uploading": "上传中...",
+      "processing": "推理中...",
+      "completed": "推理完成",
+      "failed": "推理失败"
+    }
+  },
+  "systemManagement": {
+    "title": "系统管理",
+    "users": "用户管理",
+    "roles": "角色管理",
+    "departments": "部门管理"
+  }
+}

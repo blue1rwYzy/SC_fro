@@ -1,0 +1,563 @@
+<template>
+  <div class="defect-detection-page">
+    <PageWrapper>
+      <Card :title="$t('page.system.defectDetection')" :bordered="false">
+        <!-- 模型选择 -->
+        <div class="section">
+          <label class="section-label">{{ $t('page.system.modelSelect') }}</label>
+          <Select
+            v-model:value="selectedModelId"
+            :placeholder="$t('page.system.modelSelect')"
+            style="width: 300px"
+            :loading="modelsLoading"
+          >
+            <SelectOption v-for="model in models" :key="model.id" :value="model.id">
+              {{ model.name }} ({{ model.version }})
+            </SelectOption>
+          </Select>
+        </div>
+
+        <Divider />
+
+        <!-- 图片上传方式选择 -->
+        <div class="section">
+          <label class="section-label">{{ $t('page.system.uploadImage') }}</label>
+          <Space direction="vertical" style="width: 100%">
+            <Space>
+              <Upload
+                v-model:file-list="singleFileList"
+                :before-upload="handleBeforeSingleUpload"
+                :max-count="1"
+                accept="image/*"
+                :show-upload-list="false"
+              >
+                <Button type="primary" :icon="h(UploadOutlined)">
+                  {{ $t('page.system.uploadSingle') }}
+                </Button>
+              </Upload>
+
+              <Upload
+                v-model:file-list="folderFileList"
+                :before-upload="handleBeforeFolderUpload"
+                :max-count="1"
+                accept=".zip,.rar,.7z"
+                :show-upload-list="false"
+              >
+                <Button :icon="h(FolderOpenOutlined)">
+                  {{ $t('page.system.uploadFolder') }}
+                </Button>
+              </Upload>
+
+              <Button :icon="h(DatabaseOutlined)" @click="showDatabaseModal = true">
+                {{ $t('page.system.selectFromDatabase') }}
+              </Button>
+            </Space>
+
+            <!-- 文件列表显示 -->
+            <div v-if="uploadedFiles.length > 0" class="file-list">
+              <Tag
+                v-for="(file, index) in uploadedFiles"
+                :key="index"
+                closable
+                @close="removeFile(index)"
+              >
+                {{ file.name }}
+              </Tag>
+            </div>
+          </Space>
+        </div>
+
+        <Divider />
+
+        <!-- 推理按钮 -->
+        <div class="section">
+          <Button
+            type="primary"
+            size="large"
+            :loading="inferenceStatus === 'processing'"
+            :disabled="!canStartInference"
+            @click="handleStartInference"
+          >
+            <template #icon>
+              <ThunderboltOutlined />
+            </template>
+            {{ $t('page.system.startInference') }}
+          </Button>
+          <span class="status-text">{{ statusText }}</span>
+        </div>
+
+        <Divider />
+
+        <!-- 推理结果展示 -->
+        <div v-if="inferenceResults.length > 0" class="results-section">
+          <div class="results-header">
+            <h3>{{ $t('page.system.inferenceResult') }}</h3>
+            <Space>
+              <span class="image-counter">
+                {{ $t('page.system.currentImage', { current: currentIndex + 1, total: inferenceResults.length }) }}
+              </span>
+              <Button
+                v-if="inferenceResults.length > 1"
+                :icon="h(DownloadOutlined)"
+                @click="handleDownloadAll"
+              >
+                {{ $t('page.system.downloadResults') }}
+              </Button>
+            </Space>
+          </div>
+
+          <!-- 图片查看器 -->
+          <div class="image-viewer">
+            <Card :bordered="false">
+              <div class="image-container">
+                <Image
+                  :src="currentResult.resultImage"
+                  :alt="`Result ${currentIndex + 1}`"
+                  class="result-image"
+                />
+              </div>
+
+              <!-- 检测信息 -->
+              <div class="detection-info">
+                <Descriptions :column="2" size="small" bordered>
+                  <DescriptionsItem label="原图">
+                    {{ currentResult.originalImage.split('/').pop() }}
+                  </DescriptionsItem>
+                  <DescriptionsItem label="检测数量">
+                    {{ currentResult.detections.length }} 个目标
+                  </DescriptionsItem>
+                  <DescriptionsItem label="平均置信度">
+                    {{ (currentResult.confidence * 100).toFixed(2) }}%
+                  </DescriptionsItem>
+                  <DescriptionsItem label="检测时间">
+                    {{ formatDate(currentResult.createdAt) }}
+                  </DescriptionsItem>
+                </Descriptions>
+
+                <!-- 检测详情列表 -->
+                <div v-if="currentResult.detections.length > 0" class="detections-list">
+                  <h4>检测详情</h4>
+                  <Table
+                    :columns="detectionColumns"
+                    :data-source="currentResult.detections"
+                    :pagination="false"
+                    size="small"
+                  >
+                    <template #bodyCell="{ column, record }">
+                      <template v-if="column.key === 'confidence'">
+                        <Progress
+                          :percent="Number((record.confidence * 100).toFixed(0))"
+                          :status="record.confidence > 0.8 ? 'success' : 'normal'"
+                          size="small"
+                        />
+                      </template>
+                      <template v-else-if="column.key === 'severity'">
+                        <Tag :color="getSeverityColor(record.severity)">
+                          {{ record.severity || 'N/A' }}
+                        </Tag>
+                      </template>
+                    </template>
+                  </Table>
+                </div>
+              </div>
+            </Card>
+          </div>
+
+          <!-- 翻页控制 -->
+          <div v-if="inferenceResults.length > 1" class="pagination-controls">
+            <Button
+              :disabled="currentIndex === 0"
+              :icon="h(LeftOutlined)"
+              @click="previousImage"
+            >
+              {{ $t('page.system.previousImage') }}
+            </Button>
+            <span class="page-info">
+              {{ currentIndex + 1 }} / {{ inferenceResults.length }}
+            </span>
+            <Button
+              :disabled="currentIndex === inferenceResults.length - 1"
+              @click="nextImage"
+            >
+              {{ $t('page.system.nextImage') }}
+              <RightOutlined />
+            </Button>
+          </div>
+        </div>
+      </Card>
+    </PageWrapper>
+
+    <!-- 图片数据库选择弹窗 -->
+    <ImageDatabaseModal
+      v-model:open="showDatabaseModal"
+      :allow-multiple="true"
+      @confirm="handleDatabaseConfirm"
+    />
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, h, onMounted, ref } from 'vue';
+import {
+  Button,
+  Card,
+  Descriptions,
+  DescriptionsItem,
+  Divider,
+  Image,
+  Progress,
+  Select,
+  SelectOption,
+  Space,
+  Table,
+  Tag,
+  Upload,
+} from 'ant-design-vue';
+import type { UploadFile } from 'ant-design-vue';
+import {
+  DatabaseOutlined,
+  DownloadOutlined,
+  FolderOpenOutlined,
+  LeftOutlined,
+  RightOutlined,
+  ThunderboltOutlined,
+  UploadOutlined,
+} from '@ant-design/icons-vue';
+import { message } from 'ant-design-vue';
+import { PageWrapper } from '@vben/common-ui';
+import { useI18n } from 'vue-i18n';
+
+import {
+  defectDetectionApi,
+  type ImageDatabaseItem,
+  type InferenceResult,
+  type ModelInfo,
+} from '#/api/system/defect-detection';
+import ImageDatabaseModal from './components/ImageDatabaseModal.vue';
+
+const { t } = useI18n();
+
+// 状态
+const models = ref<ModelInfo[]>([]);
+const modelsLoading = ref(false);
+const selectedModelId = ref<number>();
+const singleFileList = ref<UploadFile[]>([]);
+const folderFileList = ref<UploadFile[]>([]);
+const uploadedFiles = ref<File[]>([]);
+const selectedDatabaseImages = ref<ImageDatabaseItem[]>([]);
+const inferenceStatus = ref<'idle' | 'uploading' | 'processing' | 'completed' | 'failed'>('idle');
+const inferenceResults = ref<InferenceResult[]>([]);
+const currentIndex = ref(0);
+const showDatabaseModal = ref(false);
+const currentTaskId = ref<string>('');
+
+// 检测结果表格列
+const detectionColumns = [
+  { title: '类型', dataIndex: 'class', key: 'class' },
+  { title: '置信度', dataIndex: 'confidence', key: 'confidence' },
+  { title: '严重程度', dataIndex: 'severity', key: 'severity' },
+  { title: '位置', dataIndex: 'bbox', key: 'bbox', customRender: ({ text }: any) => `[${text.join(', ')}]` },
+];
+
+// 计算属性
+const canStartInference = computed(() => {
+  return (
+    selectedModelId.value &&
+    (uploadedFiles.value.length > 0 || selectedDatabaseImages.value.length > 0) &&
+    inferenceStatus.value !== 'processing'
+  );
+});
+
+const statusText = computed(() => {
+  const statusMap = {
+    idle: t('page.system.inferenceStatus.idle'),
+    uploading: t('page.system.inferenceStatus.uploading'),
+    processing: t('page.system.inferenceStatus.processing'),
+    completed: t('page.system.inferenceStatus.completed'),
+    failed: t('page.system.inferenceStatus.failed'),
+  };
+  return statusMap[inferenceStatus.value];
+});
+
+const currentResult = computed(() => {
+  return inferenceResults.value[currentIndex.value];
+});
+
+// 加载模型列表
+const loadModels = async () => {
+  modelsLoading.value = true;
+  try {
+    models.value = await defectDetectionApi.getModels();
+    if (models.value.length > 0) {
+      selectedModelId.value = models.value[0].id;
+    }
+  } catch (error) {
+    message.error('加载模型列表失败');
+  } finally {
+    modelsLoading.value = false;
+  }
+};
+
+// 单张图片上传前处理
+const handleBeforeSingleUpload = (file: File) => {
+  uploadedFiles.value = [file];
+  selectedDatabaseImages.value = [];
+  message.success(`已选择图片: ${file.name}`);
+  return false; // 阻止自动上传
+};
+
+// 文件夹上传前处理
+const handleBeforeFolderUpload = (file: File) => {
+  uploadedFiles.value = [file];
+  selectedDatabaseImages.value = [];
+  message.success(`已选择压缩包: ${file.name}`);
+  return false;
+};
+
+// 移除文件
+const removeFile = (index: number) => {
+  uploadedFiles.value.splice(index, 1);
+};
+
+// 数据库选择确认
+const handleDatabaseConfirm = (items: ImageDatabaseItem[]) => {
+  selectedDatabaseImages.value = items;
+  uploadedFiles.value = [];
+  message.success(`已选择 ${items.length} 张图片`);
+};
+
+// 开始推理
+const handleStartInference = async () => {
+  if (!selectedModelId.value) {
+    message.warning('请选择模型');
+    return;
+  }
+
+  inferenceStatus.value = 'processing';
+  currentIndex.value = 0;
+  inferenceResults.value = [];
+
+  try {
+    if (uploadedFiles.value.length > 0) {
+      // 上传文件推理
+      await handleFileInference();
+    } else if (selectedDatabaseImages.value.length > 0) {
+      // 数据库图片推理
+      await handleDatabaseInference();
+    }
+  } catch (error: any) {
+    inferenceStatus.value = 'failed';
+    message.error(error.message || '推理失败');
+  }
+};
+
+// 文件推理
+const handleFileInference = async () => {
+  const file = uploadedFiles.value[0];
+  const formData = new FormData();
+  formData.append('modelId', String(selectedModelId.value));
+
+  // 判断是单张图片还是压缩包
+  if (file.type.startsWith('image/')) {
+    formData.append('image', file);
+    const result = await defectDetectionApi.inferenceSingle(formData);
+    inferenceResults.value = [result];
+    inferenceStatus.value = 'completed';
+    message.success('推理完成');
+  } else {
+    // 压缩包批量推理
+    formData.append('archive', file);
+    const task = await defectDetectionApi.inferenceBatch(formData);
+    currentTaskId.value = task.taskId;
+    await pollTaskStatus(task.taskId);
+  }
+};
+
+// 数据库推理
+const handleDatabaseInference = async () => {
+  const imageIds = selectedDatabaseImages.value.map((img) => img.id);
+  const task = await defectDetectionApi.inferenceFromDatabase({
+    modelId: selectedModelId.value!,
+    imageIds,
+  });
+  currentTaskId.value = task.taskId;
+  await pollTaskStatus(task.taskId);
+};
+
+// 轮询任务状态
+const pollTaskStatus = async (taskId: string) => {
+  const maxAttempts = 60; // 最多等待 5 分钟
+  let attempts = 0;
+
+  const poll = async () => {
+    try {
+      const task = await defectDetectionApi.getTaskStatus(taskId);
+
+      if (task.status === 'completed') {
+        const results = await defectDetectionApi.getResults(taskId);
+        inferenceResults.value = results;
+        inferenceStatus.value = 'completed';
+        message.success(`推理完成，共 ${results.length} 张图片`);
+        return;
+      }
+
+      if (task.status === 'failed') {
+        inferenceStatus.value = 'failed';
+        message.error('推理失败');
+        return;
+      }
+
+      attempts++;
+      if (attempts < maxAttempts) {
+        setTimeout(poll, 5000); // 每 5 秒轮询一次
+      } else {
+        inferenceStatus.value = 'failed';
+        message.error('推理超时');
+      }
+    } catch (error) {
+      inferenceStatus.value = 'failed';
+      message.error('获取任务状态失败');
+    }
+  };
+
+  await poll();
+};
+
+// 下载所有结果
+const handleDownloadAll = async () => {
+  try {
+    message.loading({ content: t('page.system.downloading'), key: 'download' });
+    const blob = await defectDetectionApi.downloadResults(currentTaskId.value);
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `inference_results_${currentTaskId.value}.zip`;
+    link.click();
+    window.URL.revokeObjectURL(url);
+    message.success({ content: '下载完成', key: 'download' });
+  } catch (error) {
+    message.error({ content: '下载失败', key: 'download' });
+  }
+};
+
+// 翻页
+const previousImage = () => {
+  if (currentIndex.value > 0) {
+    currentIndex.value--;
+  }
+};
+
+const nextImage = () => {
+  if (currentIndex.value < inferenceResults.value.length - 1) {
+    currentIndex.value++;
+  }
+};
+
+// 格式化日期
+const formatDate = (dateStr: string) => {
+  return new Date(dateStr).toLocaleString('zh-CN');
+};
+
+// 获取严重程度颜色
+const getSeverityColor = (severity?: string) => {
+  const colorMap: Record<string, string> = {
+    high: 'red',
+    medium: 'orange',
+    low: 'green',
+  };
+  return severity ? colorMap[severity] || 'default' : 'default';
+};
+
+// 初始化
+onMounted(() => {
+  loadModels();
+});
+</script>
+
+<style scoped lang="scss">
+.defect-detection-page {
+  .section {
+    margin-bottom: 24px;
+
+    .section-label {
+      display: block;
+      margin-bottom: 12px;
+      font-weight: 500;
+      font-size: 14px;
+    }
+
+    .status-text {
+      margin-left: 16px;
+      color: #666;
+    }
+  }
+
+  .file-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .results-section {
+    .results-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+
+      h3 {
+        margin: 0;
+      }
+
+      .image-counter {
+        font-size: 14px;
+        color: #666;
+      }
+    }
+
+    .image-viewer {
+      .image-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 400px;
+        background-color: #f5f5f5;
+        border-radius: 4px;
+        padding: 16px;
+
+        .result-image {
+          max-width: 100%;
+          max-height: 600px;
+          object-fit: contain;
+        }
+      }
+
+      .detection-info {
+        margin-top: 16px;
+
+        .detections-list {
+          margin-top: 16px;
+
+          h4 {
+            margin-bottom: 12px;
+          }
+        }
+      }
+    }
+
+    .pagination-controls {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 16px;
+      margin-top: 24px;
+
+      .page-info {
+        font-size: 14px;
+        color: #666;
+      }
+    }
+  }
+}
+</style>
